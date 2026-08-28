@@ -17,8 +17,9 @@ MAX_PRICE: float = 300.0
 DB_FILE: str = "seen_listings.json"
 
 BLACKLIST: list[str] = [
-    "cazare", "hotelier", "husa", "canapea", "ikea",
-    "volan", "pedale", "maneta", "controller", "controler",
+    "cazare", "hotelier", "husa", "canapea", "ikea", "piese", "stand",
+    "volan", "pedale", "maneta", "controller", "controler", "pad", "pady", "kierownica", "fotel", "holder",
+    "hoodie", "shirt", "bluza", "cd", "skylanders",
     "ps5", "playstation 5", "ps4", "playstation 4",
     "ps2", "playstation 2", "ps1", "playstation 1",
     "xbox", "switch"
