@@ -73,7 +73,7 @@ def send_discord_alert(
     try:
         requests.post(
             DISCORD_WEBHOOK_URL,
-            data=json.dumps({"username": "Spidey Bot", "embeds": [embed]}),
+            data=json.dumps({"username": "Charizard", "embeds": [embed]}),
             headers={"Content-Type": "application/json"},
             timeout=10,
         )
