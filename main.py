@@ -7,9 +7,8 @@ from curl_cffi import requests
 # ==========================================
 # CONFIGURARE
 # ==========================================
-DISCORD_WEBHOOK_URL: str = os.getenv(
-    "DISCORD_WEBHOOK_URL",
-    "https://discordapp.com/api/webhooks/1541816768064921693/BCk0SodiPmtXuK3-OBdMRczoHl8SwhC6rDXBxYD5uhjpuEJ1aCMaAO7vvIM_HaOkGeK4",
+DISCORD_WEBHOOK_URL = os.getenv(
+    "DISCORD_WEBHOOK_URL"
 )
 SEARCH_QUERY: str = "ps3"
 MIN_PRICE: float = 150.0
