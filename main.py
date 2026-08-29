@@ -10,18 +10,14 @@ from curl_cffi import requests
 DISCORD_WEBHOOK_URL = os.getenv(
     "DISCORD_WEBHOOK_URL"
 )
-SEARCH_QUERY: str = "ps3"
-MIN_PRICE: float = 150.0
-MAX_PRICE: float = 300.0
+SEARCH_QUERY: str = "balenciaga track 43"
+MIN_PRICE: float = 300.0
+MAX_PRICE: float = 600.0
 DB_FILE: str = "seen_listings.json"
 
 BLACKLIST: list[str] = [
-    "cazare", "hotelier", "husa", "canapea", "ikea", "piese", "stand",
-    "volan", "pedale", "maneta", "controller", "controler", "pad", "pady", "kierownica", "fotel", "holder",
-    "hoodie", "shirt", "bluza", "cd", "skylanders",
-    "ps5", "playstation 5", "ps4", "playstation 4",
-    "ps2", "playstation 2", "ps1", "playstation 1",
-    "xbox", "switch"
+    "hoodie", "shirt", "bluza", "pantalon", "pantaloni", "geaca",
+    "tricou", "hanorac", "parfum", "sosete"
 ]
 
 
@@ -52,7 +48,7 @@ def send_discord_alert(
         return
 
     embed: dict[str, Any] = {
-        "title": f"🚨 PRICE DROP ALERT! ({platform})" if is_price_drop else f"🎮 NEW PS3 FOUND! ({platform})",
+        "title": f"🚨 PRICE DROP ALERT! ({platform})" if is_price_drop else f"NEW TRACKS FOUND! ({platform})",
         "description": f"**[{title}]({link})**",
         "color": 3066993 if not is_price_drop else 15158332,
         "fields": [
@@ -67,7 +63,7 @@ def send_discord_alert(
             },
             {"name": "Platform", "value": platform, "inline": True},
         ],
-        "footer": {"text": "clau original ps3 tracker™️"},
+        "footer": {"text": "clau Balenci TrackER™️"},
     }
 
     try:
@@ -117,7 +113,7 @@ def check_olx(seen_listings: dict[str, float]) -> bool:
             title_elem = item.find(["h4", "h6"])
             title = title_elem.text.strip() if (title_elem and title_elem.text.strip()) else link_elem.text.strip()
             if not title:
-                title = "PS3 Console"
+                title = "Balenciaga Track 43"
 
             price_elem = item.find(["p", "span", "div"], attrs={"data-testid": "ad-price"})
             price_text = price_elem.text.strip() if price_elem else ""
@@ -128,6 +124,9 @@ def check_olx(seen_listings: dict[str, float]) -> bool:
                 continue
 
             if any(word in title.lower() for word in BLACKLIST):
+                continue
+
+            if "43" not in title.lower():
                 continue
 
             if ad_id not in seen_listings:
@@ -163,7 +162,8 @@ def check_vinted(seen_listings: dict[str, float]) -> bool:
         # Step 2: Apelăm API-ul intern de căutare (prețurile pe Vinted RO vin convertite automat în RON)
         api_url = (
             f"https://www.vinted.ro/api/v2/catalog/items?"
-            f"search_text={SEARCH_QUERY}&price_from={MIN_PRICE}&price_to={MAX_PRICE}&order=newest_first"
+            f"search_text=balenciaga%20track&price_from={MIN_PRICE}&price_to={MAX_PRICE}"
+            f"&size_ids[]=786&order=newest_first"
         )
 
         headers = {
@@ -181,7 +181,7 @@ def check_vinted(seen_listings: dict[str, float]) -> bool:
         items = data.get("items", [])
 
         for item in items:
-            title = item.get("title", "PS3 Console")
+            title = item.get("title", "Balenciaga Track 43")
             price_amount = float(item.get("price", {}).get("amount", 0))
             item_id = str(item.get("id"))
             ad_id = f"vinted_{item_id}"
