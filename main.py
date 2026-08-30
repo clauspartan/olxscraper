@@ -5,20 +5,12 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests
 
 # ==========================================
-# CONFIGURARE
+# CONFIGURARE WEBHOOKS
 # ==========================================
-DISCORD_WEBHOOK_URL = os.getenv(
-    "DISCORD_WEBHOOK_URL"
-)
-SEARCH_QUERY: str = "balenciaga track 43"
-MIN_PRICE: float = 300.0
-MAX_PRICE: float = 600.0
-DB_FILE: str = "seen_listings.json"
+WEBHOOK_PS3 = os.getenv("DISCORD_WEBHOOK_URL")
+WEBHOOK_TRACKS = os.getenv("DISCORD_WEBHOOK_TRACKS")
 
-BLACKLIST: list[str] = [
-    "hoodie", "shirt", "bluza", "pantalon", "pantaloni", "geaca",
-    "tricou", "hanorac", "parfum", "sosete"
-]
+DB_FILE: str = "seen_listings.json"
 
 
 def load_seen_listings() -> dict[str, float]:
@@ -37,18 +29,22 @@ def save_seen_listings(data: dict[str, float]) -> None:
 
 
 def send_discord_alert(
+    webhook_url: str,
     title: str,
     price: float,
     link: str,
-    platform: str = "OLX.ro",
+    platform: str,
+    bot_name: str,
+    footer_text: str,
     is_price_drop: bool = False,
     old_price: float = 0.0,
 ) -> None:
-    if not DISCORD_WEBHOOK_URL:
+    if not webhook_url:
+        print(f"[DISCORD] Skip: Lipsesc variabilele de webhook.")
         return
 
     embed: dict[str, Any] = {
-        "title": f"🚨 PRICE DROP ALERT! ({platform})" if is_price_drop else f"NEW TRACKS FOUND! ({platform})",
+        "title": f"🚨 PRICE DROP ALERT! ({platform})" if is_price_drop else f"NEW ITEM FOUND! ({platform})",
         "description": f"**[{title}]({link})**",
         "color": 3066993 if not is_price_drop else 15158332,
         "fields": [
@@ -63,13 +59,13 @@ def send_discord_alert(
             },
             {"name": "Platform", "value": platform, "inline": True},
         ],
-        "footer": {"text": "clau Balenci TrackER™️"},
+        "footer": {"text": footer_text},
     }
 
     try:
         requests.post(
-            DISCORD_WEBHOOK_URL,
-            data=json.dumps({"username": "Charizard", "embeds": [embed]}),
+            webhook_url,
+            data=json.dumps({"username": bot_name, "embeds": [embed]}),
             headers={"Content-Type": "application/json"},
             timeout=10,
         )
@@ -77,146 +73,101 @@ def send_discord_alert(
         print(f"[DISCORD ERROR] {e}")
 
 
-def check_olx(seen_listings: dict[str, float]) -> bool:
+# ==========================================
+# 1. TRACKER BALENCIAGA TRACK (Mărimea 43)
+# ==========================================
+def run_track_finder(seen_listings: dict[str, float]) -> bool:
+    if not WEBHOOK_TRACKS:
+        return False
+
     has_changes = False
-    url = (
-        f"https://www.olx.ro/oferte/q-{SEARCH_QUERY}/"
-        f"?search%5Bfilter_float_price%3Afrom%5D={int(MIN_PRICE)}"
-        f"&search%5Bfilter_float_price%3Ato%5D={int(MAX_PRICE)}"
-    )
+    min_price, max_price = 300.0, 600.0
+    blacklist = ["hoodie", "shirt", "bluza", "pantalon", "geaca", "tricou", "hanorac", "parfum", "sosete", "cutie", "box"]
 
+    # --- VINTED ---
     try:
-        response = requests.get(url, impersonate="chrome", timeout=15)
-        print(f"[OLX] Status: {response.status_code}")
-        if response.status_code != 200:
-            return False
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        listings = (
-            soup.find_all("div", data_testid="l-card")
-            or soup.find_all("div", {"data-cy": "l-card"})
-            or soup.find_all("div", class_=lambda c: c and "card" in c.lower())
-        )
-
-        for item in listings:
-            link_elem = item.find("a", href=True)
-            if not link_elem:
-                continue
-
-            raw_href = str(link_elem["href"])
-            if not ("/d/oferta/" in raw_href or raw_href.endswith(".html")):
-                continue
-
-            link = f"https://www.olx.ro{raw_href}" if raw_href.startswith("/") else raw_href
-            ad_id = f"olx_{item.get('id') or raw_href.split('/')[-1]}"
-
-            title_elem = item.find(["h4", "h6"])
-            title = title_elem.text.strip() if (title_elem and title_elem.text.strip()) else link_elem.text.strip()
-            if not title:
-                title = "Balenciaga Track 43"
-
-            price_elem = item.find(["p", "span", "div"], attrs={"data-testid": "ad-price"})
-            price_text = price_elem.text.strip() if price_elem else ""
-            raw_price = "".join(filter(str.isdigit, price_text))
-            price = float(raw_price) if raw_price else 0.0
-
-            if price < MIN_PRICE or price > MAX_PRICE:
-                continue
-
-            if any(word in title.lower() for word in BLACKLIST):
-                continue
-
-            if "43" not in title.lower():
-                continue
-
-            if ad_id not in seen_listings:
-                print(f"[OLX NEW] {title} - {price} RON")
-                seen_listings[ad_id] = price
-                has_changes = True
-                send_discord_alert(title, price, link, platform="OLX.ro")
-            else:
-                old_price = seen_listings[ad_id]
-                if 0 < price < old_price:
-                    print(f"[OLX DROP] {title}: {old_price} -> {price} RON")
-                    seen_listings[ad_id] = price
-                    has_changes = True
-                    send_discord_alert(title, price, link, platform="OLX.ro", is_price_drop=True, old_price=old_price)
-
-    except Exception as e:
-        print(f"[OLX ERROR] {e}")
-
-    return has_changes
-
-
-def check_vinted(seen_listings: dict[str, float]) -> bool:
-    has_changes = False
-    session = requests.Session()
-
-    try:
-        # Step 1: Obținem cookie-ul de sesiune de pe Vinted.ro
-        init_res = session.get("https://www.vinted.ro", impersonate="chrome", timeout=15)
-        if init_res.status_code != 200:
-            print(f"[VINTED] Init status: {init_res.status_code}")
-            return False
-
-        # Step 2: Apelăm API-ul intern de căutare (prețurile pe Vinted RO vin convertite automat în RON)
-        api_url = (
-            f"https://www.vinted.ro/api/v2/catalog/items?"
-            f"search_text=balenciaga%20track&price_from={MIN_PRICE}&price_to={MAX_PRICE}"
-            f"&size_ids[]=786&order=newest_first"
-        )
-
-        headers = {
-            "Accept": "application/json, text/plain, */*",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        }
+        session = requests.Session()
+        session.get("https://www.vinted.ro", impersonate="chrome", timeout=15)
+        api_url = f"https://www.vinted.ro/api/v2/catalog/items?search_text=balenciaga%20track&price_from={min_price}&price_to={max_price}&size_ids[]=786&order=newest_first"
+        headers = {"Accept": "application/json, text/plain, */*", "User-Agent": "Mozilla/5.0"}
 
         api_res = session.get(api_url, headers=headers, impersonate="chrome", timeout=15)
-        print(f"[VINTED] API Status: {api_res.status_code}")
+        if api_res.status_code == 200:
+            for item in api_res.json().get("items", []):
+                title = item.get("title", "Balenciaga Track 43")
+                price_amount = float(item.get("price", {}).get("amount", 0))
+                ad_id = f"vinted_{item.get('id')}"
+                url = item.get("url") or f"https://www.vinted.ro/items/{item.get('id')}"
 
-        if api_res.status_code != 200:
-            return False
+                if price_amount < min_price or price_amount > max_price:
+                    continue
+                if any(w in title.lower() for w in blacklist):
+                    continue
 
-        data = api_res.json()
-        items = data.get("items", [])
-
-        for item in items:
-            title = item.get("title", "Balenciaga Track 43")
-            price_amount = float(item.get("price", {}).get("amount", 0))
-            item_id = str(item.get("id"))
-            ad_id = f"vinted_{item_id}"
-            url = item.get("url") or f"https://www.vinted.ro/items/{item_id}"
-
-            if price_amount < MIN_PRICE or price_amount > MAX_PRICE:
-                continue
-
-            if any(word in title.lower() for word in BLACKLIST):
-                continue
-
-            if ad_id not in seen_listings:
-                print(f"[VINTED NEW] {title} - {price_amount} RON")
-                seen_listings[ad_id] = price_amount
-                has_changes = True
-                send_discord_alert(title, price_amount, url, platform="Vinted")
-            else:
-                old_price = seen_listings[ad_id]
-                if 0 < price_amount < old_price:
-                    print(f"[VINTED DROP] {title}: {old_price} -> {price_amount} RON")
+                if ad_id not in seen_listings:
                     seen_listings[ad_id] = price_amount
                     has_changes = True
-                    send_discord_alert(title, price_amount, url, platform="Vinted", is_price_drop=True, old_price=old_price)
-
+                    send_discord_alert(WEBHOOK_TRACKS, title, price_amount, url, "Vinted", "Charizard", "clau Balenci TrackER™️")
+                elif 0 < price_amount < seen_listings[ad_id]:
+                    old_p = seen_listings[ad_id]
+                    seen_listings[ad_id] = price_amount
+                    has_changes = True
+                    send_discord_alert(WEBHOOK_TRACKS, title, price_amount, url, "Vinted", "Charizard", "clau Balenci TrackER™️", True, old_p)
     except Exception as e:
-        print(f"[VINTED ERROR] {e}")
+        print(f"[TRACK VINTED ERROR] {e}")
+
+    # --- OLX ---
+    try:
+        url = f"https://www.olx.ro/oferte/q-balenciaga-track-43/?search%5Bfilter_float_price%3Afrom%5D={int(min_price)}&search%5Bfilter_float_price%3Ato%5D={int(max_price)}"
+        res = requests.get(url, impersonate="chrome", timeout=15)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, "html.parser")
+            listings = soup.find_all("div", data_testid="l-card") or soup.find_all("div", {"data-cy": "l-card"})
+
+            for item in listings:
+                link_elem = item.find("a", href=True)
+                if not link_elem:
+                    continue
+                raw_href = str(link_elem["href"])
+                if not ("/d/oferta/" in raw_href or raw_href.endswith(".html")):
+                    continue
+
+                link = f"https://www.olx.ro{raw_href}" if raw_href.startswith("/") else raw_href
+                ad_id = f"olx_{item.get('id') or raw_href.split('/')[-1]}"
+                title_elem = item.find(["h4", "h6"])
+                title = title_elem.text.strip() if title_elem else "Balenciaga Track 43"
+                price_elem = item.find(["p", "span", "div"], attrs={"data-testid": "ad-price"})
+                raw_price = "".join(filter(str.isdigit, price_elem.text.strip())) if price_elem else ""
+                price = float(raw_price) if raw_price else 0.0
+
+                if price < min_price or price > max_price or any(w in title.lower() for w in blacklist) or "43" not in title.lower():
+                    continue
+
+                if ad_id not in seen_listings:
+                    seen_listings[ad_id] = price
+                    has_changes = True
+                    send_discord_alert(WEBHOOK_TRACKS, title, price, link, "OLX.ro", "Charizard", "clau Balenci TrackER™️")
+                elif 0 < price < seen_listings[ad_id]:
+                    old_p = seen_listings[ad_id]
+                    seen_listings[ad_id] = price
+                    has_changes = True
+                    send_discord_alert(WEBHOOK_TRACKS, title, price, link, "OLX.ro", "Charizard", "clau Balenci TrackER™️", True, old_p)
+    except Exception as e:
+        print(f"[TRACK OLX ERROR] {e}")
 
     return has_changes
 
 
+# ==========================================
+# MAIN EXECUTOR
+# ==========================================
 if __name__ == "__main__":
     seen_listings = load_seen_listings()
 
-    olx_changed = check_olx(seen_listings)
-    vinted_changed = check_vinted(seen_listings)
+    # Rulează trackerul de Balenciaga Track
+    tracks_changed = run_track_finder(seen_listings)
 
-    if olx_changed or vinted_changed:
+    # Dacă vrei să reactivezi PS3 pe alt canal în viitor, adaugi o funcție similară run_ps3_finder() aici!
+
+    if tracks_changed:
         save_seen_listings(seen_listings)
